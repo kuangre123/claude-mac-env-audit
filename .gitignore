@@ -1,0 +1,10 @@
+.DS_Store
+
+# Local source-capture artifacts from building the script.
+work/
+outputs/
+
+# Local run artifacts if the script is adjusted to write inside the repo.
+.claude-mac-env-audit/
+backups/
+reports/
