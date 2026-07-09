@@ -6,6 +6,7 @@
 # 默认行为:
 # - 执行检测，并在可安全自动处理的地方直接修复。
 # - 清理第三方 API 痕迹前会询问确认。
+# - 修改系统设置或 /etc/hosts 时会按需申请 sudo 权限。
 # - 修改用户文件或 /etc/hosts 前会先创建备份。
 # - 不会删除账号、应用、钥匙串、支付数据或浏览器配置。
 #
@@ -34,6 +35,8 @@ typeset -gi WARN_COUNT=0
 typeset -gi FIXED_COUNT=0
 typeset -gi FAIL_COUNT=0
 typeset -gi INFO_COUNT=0
+typeset -gi SUDO_READY=0
+typeset -gi SUDO_DENIED=0
 
 usage() {
   cat <<EOF
@@ -45,6 +48,7 @@ Claude Code macOS 环境检测与修复脚本
 默认行为:
   执行检测，并在可安全自动处理的地方直接修复。
   清理第三方 API 痕迹前会询问确认。
+  修改系统设置或 /etc/hosts 时会按需申请 sudo 权限。
   修改用户文件或 /etc/hosts 前会先创建备份。
   不会删除账号、应用、钥匙串、支付数据或浏览器配置。
 
@@ -191,9 +195,34 @@ run_cmd() {
   "$@"
 }
 
-can_sudo_noninteractive() {
+ensure_sudo() {
+  local reason="$1"
+
   [[ "$EUID" -eq 0 ]] && return 0
-  sudo -n true >/dev/null 2>&1
+
+  if [[ "$SUDO_READY" -eq 1 ]] && sudo -n true >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ "$SUDO_DENIED" -eq 1 ]]; then
+    return 77
+  fi
+
+  if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
+    warn "需要 sudo 权限，但当前没有可交互终端，已跳过: $reason"
+    SUDO_DENIED=1
+    return 77
+  fi
+
+  printf '需要 sudo 权限: %s\n' "$reason" > /dev/tty
+  if sudo -v -p '请输入 macOS 管理员密码: ' < /dev/tty; then
+    SUDO_READY=1
+    return 0
+  fi
+
+  warn "sudo 授权失败，已跳过: $reason"
+  SUDO_DENIED=1
+  return 77
 }
 
 run_root_cmd() {
@@ -211,12 +240,9 @@ run_root_cmd() {
     return $?
   fi
 
-  if sudo -n true >/dev/null 2>&1; then
-    sudo "$@"
-    return $?
-  fi
-
-  return 77
+  ensure_sudo "$*" || return 77
+  sudo "$@"
+  return $?
 }
 
 run_root_quiet() {
@@ -230,12 +256,9 @@ run_root_quiet() {
     return $?
   fi
 
-  if sudo -n true >/dev/null 2>&1; then
-    sudo "$@" >/dev/null 2>&1
-    return $?
-  fi
-
-  return 77
+  ensure_sudo "$*" || return 77
+  sudo "$@" >/dev/null 2>&1
+  return $?
 }
 
 print_header() {
@@ -245,7 +268,7 @@ print_header() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "模式: 仅预览，不做修改"
   elif [[ "$FIX" -eq 1 ]]; then
-    echo "模式: 自动修复；清理第三方 API 痕迹前会询问"
+    echo "模式: 自动修复；需要系统权限时会申请 sudo，清理第三方 API 痕迹前会询问"
   else
     echo "模式: 只检测"
   fi
@@ -338,7 +361,7 @@ audit_timezone() {
     if run_root_cmd systemsetup -settimezone "$TARGET_TZ"; then
       fixed "已将时区设置为 $TARGET_TZ。"
     else
-      fail "无法非交互式设置时区。如需修复，请用 sudo 重新运行。"
+      fail "无法设置时区，可能是 sudo 授权失败或 systemsetup 执行失败。"
     fi
   fi
   echo
@@ -804,7 +827,7 @@ audit_hosts_file() {
       if run_root_cmd cp "$hosts" "${BACKUP_DIR}/etc_hosts" && run_root_cmd cp "$tmp" "$hosts"; then
         fixed "已移除 /etc/hosts 中的 Claude/Anthropic 覆盖项。"
       else
-        fail "无法非交互式编辑 /etc/hosts。如有需要，请用 sudo 重新运行。"
+        fail "无法编辑 /etc/hosts，可能是 sudo 授权失败或文件写入失败。"
       fi
       rm -f "$tmp"
     fi
