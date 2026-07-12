@@ -15,6 +15,7 @@
 #   --check-only    等同于 --dry-run，用于只检测不修复。
 #   --aggressive    连仅提示风险的项目也自动修复，例如 Asia/Singapore 时区。
 #   --target-tz TZ  自动修复时区时使用的目标时区，默认 Asia/Taipei。
+#   --target-country CC  指定固定出口国家，两位国家代码，例如 US、JP、SG。
 
 set -u
 set -o pipefail
@@ -23,6 +24,7 @@ FIX=1
 DRY_RUN=0
 AGGRESSIVE=0
 TARGET_TZ="${TARGET_TZ:-Asia/Taipei}"
+TARGET_COUNTRY="${TARGET_COUNTRY:-}"
 TS="$(date +%Y%m%d-%H%M%S)"
 BASE_DIR="${HOME}/.claude-mac-env-audit"
 BACKUP_DIR="${BASE_DIR}/backups/${TS}"
@@ -43,7 +45,7 @@ usage() {
 Claude Code macOS 环境检测与修复脚本
 
 用法:
-  ${SCRIPT_NAME} [--dry-run|--check-only] [--aggressive] [--target-tz TZ]
+  ${SCRIPT_NAME} [--dry-run|--check-only] [--aggressive] [--target-tz TZ] [--target-country CC]
 
 默认行为:
   执行检测，并在可安全自动处理的地方直接修复。
@@ -57,8 +59,13 @@ Claude Code macOS 环境检测与修复脚本
   --check-only    等同于 --dry-run，用于只检测不修复。
   --aggressive    连仅提示风险的项目也自动修复，例如 Asia/Singapore 时区。
   --target-tz TZ  自动修复时区时使用的目标时区，默认 Asia/Taipei。
+  --target-country CC  指定固定出口国家，两位国家代码，例如 US、JP、SG。
   -h, --help      显示帮助。
 EOF
+}
+
+normalize_country_code() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -84,6 +91,14 @@ while [[ $# -gt 0 ]]; do
       TARGET_TZ="$2"
       shift 2
       ;;
+    --target-country)
+      if [[ $# -lt 2 ]]; then
+        echo "--target-country 需要一个两位国家代码，例如 US、JP、SG" >&2
+        exit 2
+      fi
+      TARGET_COUNTRY="$(normalize_country_code "$2")"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -95,6 +110,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+TARGET_COUNTRY="$(normalize_country_code "$TARGET_COUNTRY")"
+if [[ -n "$TARGET_COUNTRY" && "$TARGET_COUNTRY" != [A-Z][A-Z] ]]; then
+  echo "--target-country 只接受两位国家代码，例如 US、JP、SG" >&2
+  exit 2
+fi
 
 mkdir -p "$BACKUP_DIR" "$REPORT_DIR"
 exec > >(tee -a "$REPORT_FILE") 2>&1
@@ -876,7 +897,7 @@ audit_exit_ip() {
     return
   fi
 
-  local tmp ip country org city region tz
+  local tmp ip country country_code org city region tz
   tmp="$(mktemp)"
   if ! fetch_ip_json "$tmp"; then
     fail "无法获取公网 IP 元数据。"
@@ -887,25 +908,42 @@ audit_exit_ip() {
 
   ip="$(extract_json_field "$tmp" ip || true)"
   country="$(extract_json_field "$tmp" country || true)"
+  country_code="$(extract_json_field "$tmp" country_code || extract_json_field "$tmp" country_iso || true)"
+  if [[ -z "$country_code" && "$country" == [A-Za-z][A-Za-z] ]]; then
+    country_code="$country"
+  fi
+  country_code="$(normalize_country_code "$country_code")"
   org="$(extract_json_field "$tmp" org || extract_json_field "$tmp" asn.org || true)"
   city="$(extract_json_field "$tmp" city || true)"
   region="$(extract_json_field "$tmp" region || true)"
   tz="$(extract_json_field "$tmp" timezone || true)"
   rm -f "$tmp"
 
-  info "IP=${ip:-未知} 国家=${country:-未知} 地区=${region:-未知} 城市=${city:-未知} 时区=${tz:-未知}"
+  info "IP=${ip:-未知} 国家=${country:-未知} 国家代码=${country_code:-未知} 地区=${region:-未知} 城市=${city:-未知} 时区=${tz:-未知}"
   [[ -n "$org" ]] && info "ASN/组织=$org"
 
-  if [[ "$country" == "US" ]]; then
-    ok "出口国家是 US。"
+  if [[ -n "$TARGET_COUNTRY" ]]; then
+    if [[ -z "$country_code" ]]; then
+      warn "无法确认出口国家代码，不能判断是否匹配目标国家 $TARGET_COUNTRY。"
+    elif [[ "$country_code" == "$TARGET_COUNTRY" ]]; then
+      ok "出口国家代码符合目标: $TARGET_COUNTRY。"
+    else
+      warn "出口国家代码是 ${country_code}，不等于目标 ${TARGET_COUNTRY}。如果你要求固定国家，建议切换到目标出口。"
+    fi
   else
-    warn "出口国家不是 US。如果你的目标环境是美国，建议使用干净的美国出口。"
+    if [[ -z "$country_code" ]]; then
+      warn "无法确认出口国家代码。建议使用中国大陆以外的固定出口；如需严格检查，可传 --target-country CC。"
+    elif [[ "$country_code" == "CN" ]]; then
+      warn "出口国家代码是 CN。建议使用中国大陆以外的固定出口。"
+    else
+      ok "出口国家代码是 ${country_code}。默认策略接受中国大陆以外的固定出口；如需严格固定国家，可传 --target-country ${country_code}。"
+    fi
   fi
 
   local org_lc
   org_lc="$(printf '%s' "$org" | tr '[:upper:]' '[:lower:]')"
   if [[ "$org_lc" =~ "(aliyun|alibaba|tencent|qcloud|huawei|volc|bytedance|baidu|china|cn2|ctyun|ucloud)" ]]; then
-    warn "ASN/组织看起来与中国云厂商或网络服务商有关。如非预期，建议换成更中性的美国服务商。"
+    warn "ASN/组织看起来与中国云厂商或网络服务商有关。如非预期，建议换成目标国家内更中性的服务商或网络出口。"
   fi
   echo
 }

@@ -15,7 +15,7 @@
 - 清理 npm/yarn/pnpm/git 中的代理残留。
 - 检查 Claude / Claude Code Router 配置中的代理、自定义端点、第三方 API 痕迹。
 - 检查 `/etc/hosts` 中的 Claude/Anthropic 覆盖项。
-- 检查出口 IP、DNS 和 `api.anthropic.com` 连通性。
+- 检查出口 IP、出口国家、DNS 和 `api.anthropic.com` 连通性；默认接受中国大陆以外的固定出口，也可指定目标国家。
 - 每次运行会生成报告；修改文件前会生成备份。
 
 ## 使用
@@ -46,6 +46,14 @@
 ./claude_mac_env_audit.sh --target-tz Asia/Taipei
 ```
 
+指定固定出口国家，例如日本、新加坡、美国：
+
+```bash
+./claude_mac_env_audit.sh --target-country JP
+./claude_mac_env_audit.sh --target-country SG
+./claude_mac_env_audit.sh --target-country US
+```
+
 如果系统提示没有执行权限：
 
 ```bash
@@ -60,6 +68,7 @@ chmod +x ./claude_mac_env_audit.sh
 | `--check-only` | 等同于 `--dry-run`。 |
 | `--aggressive` | 连仅提示风险的项目也自动修复，例如 `Asia/Singapore` 时区。 |
 | `--target-tz TZ` | 设置自动修复时区时使用的目标时区，默认 `Asia/Taipei`。 |
+| `--target-country CC` | 指定固定出口国家，两位国家代码，例如 `US`、`JP`、`SG`。不指定时默认接受中国大陆以外的固定出口。 |
 | `--no-fix` | 只检测，不执行修复。 |
 | `-h`, `--help` | 显示帮助。 |
 
