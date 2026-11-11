@@ -15,3 +15,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests
         run: zsh tests/test_cli.zsh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run CLI tests
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File windows\tests\test_cli.ps1
+      - name: Run GUI tests
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File windows\tests\test_gui.ps1

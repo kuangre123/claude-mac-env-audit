@@ -8,3 +8,7 @@ outputs/
 .claude-mac-env-audit/
 backups/
 reports/
+
+# Windows tests and launcher artifacts.
+windows/.test-tmp/
+*.log
