@@ -6,6 +6,8 @@
 
 涉及系统设置修改的项目会按需申请 `sudo` 权限，例如修改系统时区、关闭系统代理、编辑 `/etc/hosts`。只检测模式不会申请 `sudo`。
 
+Windows 用户：本仓库同时提供 Windows 版本的检测与修复工具（PowerShell 脚本 + WPF 图形界面），见 [windows/README.md](windows/README.md)。
+
 ## 功能
 
 - 检测 macOS 系统版本、架构、`claude` 和 `node` 环境。
@@ -124,11 +126,11 @@ chmod +x ./claude_mac_env_audit.sh
 zsh tests/test_cli.zsh
 ```
 
-GitHub Actions 会在每次推送和 Pull Request 时运行同一组测试。
+GitHub Actions 会在每次推送和 Pull Request 时运行同一组测试（`macos` 与 `windows` 两个 job）。
 
 ## 适用范围
 
-此脚本只面向 macOS。它用于本机环境排查和配置卫生检查，不保证解决任何平台账号、风控或服务可用性问题。请遵守你所在地区的法律法规和相关服务条款。
+macOS 部分只面向 macOS；Windows 部分只面向 Windows（见 windows/）。它用于本机环境排查和配置卫生检查，不保证解决任何平台账号、风控或服务可用性问题。请遵守你所在地区的法律法规和相关服务条款。
 
 ## 许可证
 
